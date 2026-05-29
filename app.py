@@ -72,6 +72,14 @@ indices_map = {
     "MIDCAP NIFTY (CE/PE)": "NIFTY_MID_SELECT.NS"
 }
 
+# Mapping for TradingView specific symbols
+tv_indices_map = {
+    "^NSEI": "NSE:NIFTY",
+    "^NSEBANK": "NSE:BANKNIFTY",
+    "NIFTY_FIN_SERVICE.NS": "NSE:CNXFINANCE",
+    "NIFTY_MID_SELECT.NS": "NSE:MIDCPNIFTY"
+}
+
 midcap_stocks = [
     "MAXHEALTH", "YESBANK", "IDFCFIRSTB", "GMRINFRA", "IDEA", "RVNL", "IRFC", "SUZLON", "ZOMATO", "NYKAA",
     "PAYTM", "CONCOR", "POLYCAB", "PERSISTENT", "OBEROIRLTY", "KPITtech", "TATACOMM", "COFORGE", "MPHASIS", "DIXON",
@@ -154,15 +162,23 @@ if group_data is not None and not group_data.empty:
             sell_condition = (ema8_val < ema13_val < ema21_val) and (ltp < vwap_val) and (rsi_val < 45) and (macd_val < macd_sig) and (adx_val > 20)
             
             clean_name = "Unknown"
+            tv_symbol = ""
+            
             if segment_choice == "Index Options (Spot)":
                 for name, ticker in display_names.items():
                     if ticker == sym:
                         clean_name = name
+                        tv_symbol = tv_indices_map.get(ticker, "NSE:NIFTY")
             else:
                 clean_name = display_names[sym]
+                tv_symbol = f"NSE:{clean_name}"
+            
+            # Constructing the TradingView link
+            tv_link = f"https://in.tradingview.com/chart/?symbol={tv_symbol}"
             
             stock_data = {
                 "Asset Name": clean_name,
+                "TradingView": tv_link,
                 "LTP": round(ltp, 2),
                 "RSI": round(rsi_val, 1),
                 "ADX": round(adx_val, 1),
@@ -179,6 +195,14 @@ if group_data is not None and not group_data.empty:
     # Dashboard Signals Display
     col1, col2 = st.columns(2)
 
+    # Column configuration for clickable links
+    link_config = {
+        "TradingView": st.column_config.LinkColumn(
+            "📈 Open Chart",
+            display_text="View Chart ↗"
+        )
+    }
+
     with col1:
         if segment_choice == "Index Options (Spot)":
             st.markdown('<div class="buy-title">🟢 CALL OPTION (CE) - BUY SIGNALS</div>', unsafe_allow_html=True)
@@ -186,7 +210,12 @@ if group_data is not None and not group_data.empty:
             st.markdown('<div class="buy-title">🟢 STOCKS BULLISH MOMENTUM</div>', unsafe_allow_html=True)
             
         if buy_signals:
-            st.dataframe(pd.DataFrame(buy_signals), use_container_width=True, hide_index=True)
+            st.dataframe(
+                pd.DataFrame(buy_signals), 
+                use_container_width=True, 
+                hide_index=True,
+                column_config=link_config
+            )
         else:
             st.info("No Bullish Scalping setups found right now.")
 
@@ -197,7 +226,12 @@ if group_data is not None and not group_data.empty:
             st.markdown('<div class="sell-title">🔴 STOCKS BEARISH MOMENTUM</div>', unsafe_allow_html=True)
             
         if sell_signals:
-            st.dataframe(pd.DataFrame(sell_signals), use_container_width=True, hide_index=True)
+            st.dataframe(
+                pd.DataFrame(sell_signals), 
+                use_container_width=True, 
+                hide_index=True,
+                column_config=link_config
+            )
         else:
             st.info("No Bearish Scalping setups found right now.")
 
