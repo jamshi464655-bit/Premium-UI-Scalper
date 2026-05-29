@@ -68,16 +68,16 @@ data_period = period_map[tf_choice]
 indices_map = {
     "NIFTY 50 (CE/PE)": "^NSEI",
     "BANK NIFTY (CE/PE)": "^NSEBANK",
-    "FIN NIFTY (CE/PE)": "NIFTY_FIN_SERVICE.NS",
-    "MIDCAP NIFTY (CE/PE)": "NIFTY_MID_SELECT.NS"
+    "FIN NIFTY (CE/PE)": "NIFTY-FIN-SERVICE.NS",
+    "MIDCAP NIFTY (CE/PE)": "NIFTY-MID-SELECT.NS"
 }
 
 # Mapping for TradingView specific symbols
 tv_indices_map = {
     "^NSEI": "NSE:NIFTY",
     "^NSEBANK": "NSE:BANKNIFTY",
-    "NIFTY_FIN_SERVICE.NS": "NSE:CNXFINANCE",
-    "NIFTY_MID_SELECT.NS": "NSE:MIDCPNIFTY"
+    "NIFTY-FIN-SERVICE.NS": "NSE:CNXFINANCE",
+    "NIFTY-MID-SELECT.NS": "NSE:MIDCPNIFTY"
 }
 
 midcap_stocks = [
@@ -109,12 +109,8 @@ with m_col3:
 # Bulk Download for Speed
 with st.spinner("📥 Downloading Live Market Feeds..."):
     try:
-        if len(symbols_to_scan) == 1:
-            group_data = yf.download(symbols_to_scan[0], period=data_period, interval=tf_choice, progress=False)
-            if not group_data.empty:
-                group_data = pd.concat({symbols_to_scan[0]: group_data}, axis=1)
-        else:
-            group_data = yf.download(symbols_to_scan, period=data_period, interval=tf_choice, group_by='ticker', progress=False)
+        # സ്പോട്ട് ഇൻഡക്സുകൾ കൃത്യമായി സിംഗിൾ ആയും ബൾക്കായും ഡൗൺലോഡ് ചെയ്യാനുള്ള ലൂപ്പ്
+        group_data = yf.download(symbols_to_scan, period=data_period, interval=tf_choice, group_by='ticker', progress=False)
     except Exception as e:
         st.error(f"Connection Error: {e}")
         group_data = None
@@ -122,10 +118,14 @@ with st.spinner("📥 Downloading Live Market Feeds..."):
 if group_data is not None and not group_data.empty:
     for sym in symbols_to_scan:
         try:
-            if sym in group_data.columns.levels[0]:
-                df = group_data[sym].dropna().copy()
+            # സിംഗിൾ ടിക്കർ ആണെങ്കിലും മൾട്ടിപ്പിൾ ആണെങ്കിലും ഡാറ്റ സുരക്ഷിതമായി എടുക്കാൻ
+            if len(symbols_to_scan) == 1:
+                df = group_data.dropna().copy()
             else:
-                continue
+                if sym in group_data.columns.levels[0]:
+                    df = group_data[sym].dropna().copy()
+                else:
+                    continue
                 
             if df.empty or len(df) < 55:
                 continue
@@ -137,7 +137,12 @@ if group_data is not None and not group_data.empty:
             df['EMA55'] = ta_indicators.trend.ema_indicator(df['Close'], window=55)
             
             typical_price = (df['High'] + df['Low'] + df['Close']) / 3
-            df['VWAP'] = (typical_price * df['Volume']).cumsum() / df['Volume'].cumsum()
+            
+            # ഇൻഡക്സുകളിൽ വോളിയം ചിലപ്പോൾ പൂജ്യം ആയിരിക്കും, അതുകൊണ്ട് എറർ ഒഴിവാക്കാൻ ചെറിയൊരു ഫിക്സ്
+            if 'Volume' in df.columns and df['Volume'].sum() > 0:
+                df['VWAP'] = (typical_price * df['Volume']).cumsum() / df['Volume'].cumsum()
+            else:
+                df['VWAP'] = df['Close'] # വോളിയം ഇല്ലെങ്കിൽ വിയാപിന് പകരം ക്ലോസ് പ്രൈസ് ബേസ് ചെയ്യും
             
             df['RSI'] = ta_indicators.momentum.rsi(df['Close'], window=14)
             df['MACD'] = ta_indicators.trend.macd(df['Close'], window_fast=12, window_slow=26)
@@ -158,8 +163,8 @@ if group_data is not None and not group_data.empty:
             macd_sig = float(latest['MACD_Signal'])
 
             # Scalping Math Formulas
-            buy_condition = (ema8_val > ema13_val > ema21_val) and (ltp > vwap_val) and (rsi_val > 55) and (macd_val > macd_sig) and (adx_val > 20)
-            sell_condition = (ema8_val < ema13_val < ema21_val) and (ltp < vwap_val) and (rsi_val < 45) and (macd_val < macd_sig) and (adx_val > 20)
+            buy_condition = (ema8_val > ema13_val > ema21_val) and (ltp >= vwap_val) and (rsi_val > 55) and (macd_val > macd_sig) and (adx_val > 20)
+            sell_condition = (ema8_val < ema13_val < ema21_val) and (ltp <= vwap_val) and (rsi_val < 45) and (macd_val < macd_sig) and (adx_val > 20)
             
             clean_name = "Unknown"
             tv_symbol = ""
@@ -173,7 +178,6 @@ if group_data is not None and not group_data.empty:
                 clean_name = display_names[sym]
                 tv_symbol = f"NSE:{clean_name}"
             
-            # Constructing the TradingView link
             tv_link = f"https://in.tradingview.com/chart/?symbol={tv_symbol}"
             
             stock_data = {
@@ -195,7 +199,6 @@ if group_data is not None and not group_data.empty:
     # Dashboard Signals Display
     col1, col2 = st.columns(2)
 
-    # Column configuration for clickable links
     link_config = {
         "TradingView": st.column_config.LinkColumn(
             "📈 Open Chart",
@@ -210,12 +213,7 @@ if group_data is not None and not group_data.empty:
             st.markdown('<div class="buy-title">🟢 STOCKS BULLISH MOMENTUM</div>', unsafe_allow_html=True)
             
         if buy_signals:
-            st.dataframe(
-                pd.DataFrame(buy_signals), 
-                use_container_width=True, 
-                hide_index=True,
-                column_config=link_config
-            )
+            st.dataframe(pd.DataFrame(buy_signals), use_container_width=True, hide_index=True, column_config=link_config)
         else:
             st.info("No Bullish Scalping setups found right now.")
 
@@ -226,12 +224,7 @@ if group_data is not None and not group_data.empty:
             st.markdown('<div class="sell-title">🔴 STOCKS BEARISH MOMENTUM</div>', unsafe_allow_html=True)
             
         if sell_signals:
-            st.dataframe(
-                pd.DataFrame(sell_signals), 
-                use_container_width=True, 
-                hide_index=True,
-                column_config=link_config
-            )
+            st.dataframe(pd.DataFrame(sell_signals), use_container_width=True, hide_index=True, column_config=link_config)
         else:
             st.info("No Bearish Scalping setups found right now.")
 
